@@ -1,0 +1,50 @@
+.about{
+    line-height: 3.5vh;
+    color:grey;
+}
+.icon{
+    font-size: 10vh;
+}
+.icon:nth-child(1):hover{
+    color: rgb(17, 0, 255);
+}
+.icon:nth-child(2):hover{
+    color: rgb(255, 0, 234);
+}
+.icon:nth-child(3):hover{
+    color: rgb(0, 217, 255);
+}
+
+.my-img{
+    height: 33.3vh;
+    border-radius: 50%;
+}
+
+.bar{
+    list-style: none;
+    cursor:pointer;
+    margin: 1vh 0px;
+    border: 1px solid grey;
+    background-color: rgba(222, 184, 135, 0.274);
+    width: 90%;
+}
+
+
+
+
+@media (min-width:887px) {
+    .about{
+    font-size: 1.5rem;
+    line-height: 3.5vh;
+    }
+    .name{
+        font-size: 5rem;
+    }
+    .my-img{
+        height: 40vh;
+    }
+    .skills{
+        display: flex;
+        gap: 1vw;
+    }
+}
