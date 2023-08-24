@@ -55,7 +55,7 @@ export default function App() {
       <div>
         <div className="profile-img text-center my-5">
           <img
-            src="./images/azhagar1.jpg"
+            src="images/azhagar1.jpg"
             alt="my"
             className="col-10 col-md-5 my-5 my-img"
           ></img>
