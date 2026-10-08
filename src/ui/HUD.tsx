@@ -82,7 +82,7 @@ function TopRight() {
       >
         <span className="mono">GFX {quality === 'high' ? 'HD' : 'LITE'}</span>
       </button>
-      <a className="hud-card hud-btn" href={profile.resume} target="_blank" rel="noreferrer" title="Download résumé">
+      <a className="hud-card hud-btn" href={profile.resume} download="Azhagar_M_Frontend_Developer.pdf" title="Download résumé">
         <Icon name="file" size={16} />
         <span>Résumé</span>
       </a>

@@ -38,6 +38,7 @@ export function useStore<T extends object, S>(store: Store<T>, selector: (s: T) 
 
 export type StepKind = 'drive' | 'swap' | 'launch'
 export type SignalState = 'none' | 'stop' | 'cows' | 'go'
+export type TipState = 'none' | 'drive' | 'lane'
 
 /** Discrete journey state for the DOM UI (updated only when something changes) */
 export const ui = createStore({
@@ -52,7 +53,7 @@ export const ui = createStore({
   coins: 0,
   signal: 'none' as SignalState,
   lane: 0,
-  laneTip: false,
+  tip: 'none' as TipState,
   fade: false,
 })
 

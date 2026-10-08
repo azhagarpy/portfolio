@@ -16,7 +16,7 @@ export function ZoneIcon({ zone, size = 18 }: { zone: number; size?: number }) {
   )
 }
 
-type IconName = 'mail' | 'phone' | 'github' | 'linkedin' | 'file' | 'replay' | 'coin' | 'swap' | 'arrow' | 'left' | 'right' | 'horn' | 'sound' | 'mute'
+type IconName = 'mail' | 'phone' | 'github' | 'linkedin' | 'file' | 'replay' | 'coin' | 'swap' | 'arrow' | 'left' | 'right' | 'horn' | 'sound' | 'mute' | 'up' | 'down'
 
 const PATHS: Record<IconName, string> = {
   mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
@@ -34,6 +34,8 @@ const PATHS: Record<IconName, string> = {
   horn: 'M4 9h3l9-5v16l-9-5H4zM7 15l1.5 5h3l-1.2-4.2M19 9.5a3.5 3.5 0 0 1 0 5',
   sound: 'M4 9h4l5-4v14l-5-4H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12',
   mute: 'M4 9h4l5-4v14l-5-4H4zM17 9.5l5 5M22 9.5l-5 5',
+  up: 'M5 15l7-7 7 7',
+  down: 'M5 9l7 7 7-7',
 }
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {

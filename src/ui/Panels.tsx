@@ -75,7 +75,7 @@ function Hero() {
         <strong>React Native</strong>. Hop in — this portfolio is a road trip.
       </p>
       <div className="actions">
-        <a className="btn btn--primary" href={profile.resume} target="_blank" rel="noreferrer">
+        <a className="btn btn--primary" href={profile.resume} download="Azhagar_M_Frontend_Developer.pdf">
           <Icon name="file" size={16} /> Résumé
         </a>
         <button className="btn" onClick={() => travelTo(zoneStartProgress(6))}>
@@ -85,7 +85,7 @@ function Hero() {
       <div className="scroll-hint">
         <span className="scroll-hint__mouse" />
         <span>
-          Scroll to drive · <kbd>←</kbd> <kbd>→</kbd> lanes · <kbd>H</kbd> horn
+          Scroll ↓ or <kbd>↑</kbd> to drive · <kbd>↓</kbd> reverse · <kbd>←</kbd> <kbd>→</kbd> lanes
         </span>
       </div>
     </Panel>
@@ -234,7 +234,7 @@ function Contact() {
         <a className="btn btn--primary" href={`mailto:${profile.email}`}>
           <Icon name="mail" size={16} /> Email me
         </a>
-        <a className="btn" href={profile.resume} target="_blank" rel="noreferrer">
+        <a className="btn" href={profile.resume} download="Azhagar_M_Frontend_Developer.pdf">
           <Icon name="file" size={16} /> Résumé
         </a>
       </div>
@@ -319,7 +319,7 @@ export function FinalCard() {
           <a className="btn btn--primary" href={`mailto:${profile.email}`}>
             <Icon name="mail" size={16} /> Say hello
           </a>
-          <a className="btn" href={profile.resume} target="_blank" rel="noreferrer">
+          <a className="btn" href={profile.resume} download="Azhagar_M_Frontend_Developer.pdf">
             <Icon name="file" size={16} /> Résumé
           </a>
           <button className="btn" onClick={() => travelTo(0)}>

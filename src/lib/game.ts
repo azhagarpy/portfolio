@@ -11,6 +11,7 @@ import {
   live,
   locate,
   MAX_SPEED,
+  RANGES,
   ROAD_LENGTH,
   ROCKET_SWAP_SECONDS,
   ROCKET_SWAP_STEP,
@@ -21,13 +22,18 @@ import {
   type CrossingDef,
 } from './journey'
 import { sfx, unlockAudio } from './sfx'
-import { settings, ui, type SignalState } from './store'
+import { settings, ui, type SignalState, type TipState } from './store'
 
 /*
- * Stateful game layer on top of the scroll-driven journey:
- * speed limits, auto-playing cutscenes, lanes + coins, and crossings
- * where the player has to wait for pedestrians (or cows).
+ * Game layer on top of the journey: the player drives with the scroll wheel,
+ * arrow keys / WASD, touch drags or the on-screen pedals. It also handles
+ * lanes + coins, red lights and cattle crossings, and the swap cutscenes.
  */
+
+const ACCEL = 12 // units/s² when speeding up
+const BRAKE = 30 // when the input points the other way
+const COAST = 15 // when there is no input
+const REVERSE_FACTOR = 0.45 // reverse is slower than forward
 
 export type Phase = 'idle' | 'yellow' | 'red' | 'go' | 'done'
 
@@ -82,6 +88,14 @@ COINS.forEach((c, i) => {
 })
 
 export const game = {
+  // driving input
+  keyFwd: false,
+  keyRev: false,
+  pedal: 0,
+  wheel: 0, // decaying throttle from the scroll wheel / touch drags
+  swipeX: 0, // accumulated horizontal trackpad swipe
+  hasDriven: false,
+  // lanes + coins
   laneTarget: 0,
   laneChanged: false,
   collected: new Uint8Array(COINS.length),
@@ -89,6 +103,7 @@ export const game = {
   coinCount: 0,
   prevU: -1,
   prevVehicle: -1,
+  // misc
   honkUntil: 0,
   lastT: 0,
   lastStep: 0,
@@ -119,59 +134,144 @@ export function honk() {
   game.honkUntil = live.time + 2.5
 }
 
+/** On-screen pedals: 1 = gas, -1 = reverse, 0 = released */
+export function setPedal(dir: number) {
+  game.pedal = dir
+  if (dir !== 0) start()
+}
+
+function start() {
+  if (!settings.get().started) settings.set({ started: true })
+}
+
+/** Is the element (or an ancestor) a scroll box that can still scroll in this direction? */
+function scrollsInside(el: EventTarget | null, dy: number) {
+  let node = el instanceof Element ? el : null
+  while (node && node !== document.body) {
+    const style = getComputedStyle(node)
+    if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1) {
+      if (dy > 0 ? node.scrollTop + node.clientHeight < node.scrollHeight - 1 : node.scrollTop > 0) return true
+    }
+    node = node.parentElement
+  }
+  return false
+}
+
 export function installControls() {
-  const onKey = (e: KeyboardEvent) => {
+  const onKey = (e: KeyboardEvent, down: boolean) => {
     const el = e.target as HTMLElement | null
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
-    unlockAudio()
     const k = e.key.toLowerCase()
-    if (k === 'arrowleft' || k === 'a') {
+    if (k === 'arrowup' || k === 'w') {
+      game.keyFwd = down
+      e.preventDefault()
+      if (down) start()
+    } else if (k === 'arrowdown' || k === 's') {
+      game.keyRev = down
+      e.preventDefault()
+    } else if (down && !e.repeat && (k === 'arrowleft' || k === 'a')) {
       changeLane(-1)
       e.preventDefault()
-    } else if (k === 'arrowright' || k === 'd') {
+    } else if (down && !e.repeat && (k === 'arrowright' || k === 'd')) {
       changeLane(1)
       e.preventDefault()
-    } else if (k === 'h') honk()
+    } else if (down && !e.repeat && k === 'h') honk()
+    if (down) unlockAudio()
   }
+  const onKeyDown = (e: KeyboardEvent) => onKey(e, true)
+  const onKeyUp = (e: KeyboardEvent) => onKey(e, false)
+  const release = () => {
+    game.keyFwd = false
+    game.keyRev = false
+    game.pedal = 0
+  }
+
+  const onWheel = (e: WheelEvent) => {
+    if (e.ctrlKey) return // pinch-zoom
+    const scale = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1
+    const dx = e.deltaX * scale
+    const dy = e.deltaY * scale
+    if (scrollsInside(e.target, dy)) return
+    e.preventDefault()
+    if (Math.abs(dx) > Math.abs(dy) * 1.5) {
+      // horizontal trackpad swipe = lane change
+      game.swipeX += dx
+      if (Math.abs(game.swipeX) > 140) {
+        changeLane(Math.sign(game.swipeX))
+        game.swipeX = 0
+      }
+      return
+    }
+    // scroll down drives forward, scroll up reverses
+    game.wheel = clamp(game.wheel + dy / 240, -1.2, 1.2)
+    if (dy > 0) start()
+  }
+
   let sx = 0
   let sy = 0
+  let ly = 0
   let st = 0
+  let inPanel = false
   const onTouchStart = (e: TouchEvent) => {
     const t = e.touches[0]
     sx = t.clientX
-    sy = t.clientY
+    sy = ly = t.clientY
     st = performance.now()
+    inPanel = !!(e.target instanceof Element && e.target.closest('.panel, .final'))
+  }
+  const onTouchMove = (e: TouchEvent) => {
+    const t = e.touches[0]
+    const dy = ly - t.clientY // finger moving up = forward, like scrolling down
+    ly = t.clientY
+    if (inPanel && scrollsInside(e.target, dy)) return
+    if (e.cancelable) e.preventDefault()
+    if (Math.abs(t.clientX - sx) < Math.abs(t.clientY - sy) * 1.2) {
+      game.wheel = clamp(game.wheel + dy / 110, -1.2, 1.2)
+      if (dy > 0) start()
+    }
   }
   const onTouchEnd = (e: TouchEvent) => {
     const t = e.changedTouches[0]
     const dx = t.clientX - sx
     const dy = t.clientY - sy
-    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4 && performance.now() - st < 600) changeLane(dx > 0 ? 1 : -1)
+    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4 && performance.now() - st < 700) changeLane(dx > 0 ? 1 : -1)
   }
   const onPointer = () => unlockAudio()
-  window.addEventListener('keydown', onKey)
+
+  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('blur', release)
+  window.addEventListener('wheel', onWheel, { passive: false })
   window.addEventListener('touchstart', onTouchStart, { passive: true })
+  window.addEventListener('touchmove', onTouchMove, { passive: false })
   window.addEventListener('touchend', onTouchEnd, { passive: true })
   window.addEventListener('pointerdown', onPointer)
   return () => {
-    window.removeEventListener('keydown', onKey)
+    window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('keyup', onKeyUp)
+    window.removeEventListener('blur', release)
+    window.removeEventListener('wheel', onWheel)
     window.removeEventListener('touchstart', onTouchStart)
+    window.removeEventListener('touchmove', onTouchMove)
     window.removeEventListener('touchend', onTouchEnd)
     window.removeEventListener('pointerdown', onPointer)
   }
 }
 
-const scrollMaxPx = () => Math.max(1, document.documentElement.scrollHeight - window.innerHeight)
-
 /** Fade to black, jump, fade back in */
 export function fastTravel(p: number) {
   if (ui.get().fade) return
+  start()
   ui.set({ fade: true })
   window.setTimeout(() => {
-    window.scrollTo({ top: p * scrollMaxPx(), behavior: 'instant' as ScrollBehavior })
     live.progress = p
+    live.velocity = 0
     live.snap = true
+    game.wheel = 0
+    game.laneTarget = 0
+    live.laneX = 0
     game.prevVehicle = -1
+    if (p === 0) game.hasDriven = false
     const { index } = locate(p)
     for (const c of game.crossings) {
       resetCrossing(c, index > DRIVE_STEP[c.def.zone] || (index === DRIVE_STEP[c.def.zone] && p > c.def.pStop) ? 'done' : 'idle')
@@ -182,15 +282,8 @@ export function fastTravel(p: number) {
 
 /* --------------------------------------------------------- the loop */
 
-/** Fastest the scroll progress may change at p, so vehicles keep a believable speed */
-function maxRate(p: number, dir: number) {
-  const { index } = locate(p)
-  const s = STEPS[index]
-  const w = s.end - s.start
-  if (s.kind === 'drive') return (MAX_SPEED[s.vehicle] * (dir < 0 ? 1.8 : 1)) / Math.max(unitsPerProgress(p), 1)
-  const secs = s.kind === 'launch' ? LAUNCH_SECONDS : index === ROCKET_SWAP_STEP ? ROCKET_SWAP_SECONDS : SWAP_SECONDS
-  return (w / secs) * (dir < 0 ? 3 : 1)
-}
+const approach = (v: number, target: number, step: number) =>
+  v < target ? Math.min(target, v + step) : Math.max(target, v - step)
 
 function blockingCrossing(stepIndex: number) {
   const step = STEPS[stepIndex]
@@ -203,45 +296,63 @@ function blockingCrossing(stepIndex: number) {
 }
 
 export function stepGame(time: number, dt: number) {
-  const max = scrollMaxPx()
-  let target = clamp(window.scrollY / max)
-  live.target = target
+  game.wheel *= Math.exp(-dt / 0.3)
+  game.swipeX *= Math.exp(-dt / 0.25)
+  const throttle = clamp((game.keyFwd ? 1 : 0) - (game.keyRev ? 1 : 0) + game.pedal + game.wheel, -1, 1)
+
   const cur = live.progress
   const { index } = locate(cur)
   const step = STEPS[index]
+  let p = cur
+  const prevVel = live.velocity
 
-  // cutscenes (vehicle swaps, the launch) play through on their own once started
-  const cutscene = (step.kind === 'swap' || step.kind === 'launch') && cur > step.start + 1e-6 && target > step.start - 0.004
-  if (cutscene) target = Math.min(1, Math.max(target, step.end + 1e-6))
+  if (step.kind === 'drive') {
+    const v = step.vehicle
+    const sv = live.vehicles[v]
+    const [u0, u1] = RANGES[v]
+    const max = MAX_SPEED[v]
+    const target = throttle >= 0 ? throttle * max : throttle * max * REVERSE_FACTOR
+    let vel = live.velocity
+    const rate = Math.abs(target) < 0.01 ? COAST : vel !== 0 && Math.sign(target) !== Math.sign(vel) ? BRAKE : ACCEL
+    vel = approach(vel, target, rate * dt)
 
-  let desired = cutscene ? target : damp(cur, target, 2.4, dt)
-  if (Math.abs(desired - target) < 2e-6) desired = target
-  let rate = (desired - cur) / Math.max(dt, 1e-4)
-  const lim = maxRate(cur, Math.sign(rate))
-  rate = clamp(rate, -lim, lim)
-  let p = cur + rate * dt
+    // slow down into the next gate, and never roll back past the previous one
+    const toEnd = Math.max(0, (u1 - sv.u) * ROAD_LENGTH)
+    const fromStart = Math.max(0, (sv.u - u0) * ROAD_LENGTH)
+    if (vel > 0) vel = Math.min(vel, Math.sqrt(2 * 14 * toEnd) + 1.6)
+    if (vel < 0 && index === 0) vel = Math.max(vel, -Math.sqrt(2 * 14 * fromStart))
+    // red light: brake for the stop line and wait there
+    const blk = blockingCrossing(index)
+    if (blk && vel > 0) vel = Math.min(vel, Math.sqrt(2 * 13 * Math.max(0, (blk.def.stopU - sv.u) * ROAD_LENGTH)))
 
-  // brake smoothly for a red light, then hold at the stop line
-  const blk = blockingCrossing(index)
-  if (blk && rate > 0) {
-    const dRoad = Math.max(0, (blk.def.stopU - live.vehicles[step.vehicle].u) * ROAD_LENGTH)
-    const allowed = Math.sqrt(2 * 13 * dRoad) / Math.max(unitsPerProgress(cur), 1)
-    p = Math.min(cur + Math.min(rate, allowed) * dt, blk.def.pStop)
+    p = cur + (vel / unitsPerProgress(cur)) * dt
+    if (blk) p = Math.min(p, blk.def.pStop)
+    live.velocity = vel
+    if (vel > 0.5) game.hasDriven = true
+  } else {
+    // swap cutscenes and the launch play on their own; hold reverse to rewind
+    const secs = step.kind === 'launch' ? LAUNCH_SECONDS : index === ROCKET_SWAP_STEP ? ROCKET_SWAP_SECONDS : SWAP_SECONDS
+    const dir = throttle < -0.3 ? -1.5 : 1
+    p = cur + (dir * (step.end - step.start) * dt) / secs
+    live.velocity = 0
   }
   p = clamp(p)
+  live.hero = damp(live.hero, index === 0 && !game.hasDriven ? 1 : 0, 1.8, dt)
+  live.accel = damp(live.accel, (live.velocity - prevVel) / Math.max(dt, 1e-4), 8, dt)
 
-  // lanes
-  const laneVehicle = Math.min(STEPS[locate(p).index].vehicle, 6)
+  // lanes (re-centred for every new vehicle)
+  const next = locate(p).index
+  if (next !== index && STEPS[next].kind === 'swap') {
+    game.laneTarget = 0
+    live.laneX = 0
+  }
+  const laneVehicle = Math.min(STEPS[next].vehicle, 6)
   const prevX = live.laneX
   live.laneX = damp(live.laneX, game.laneTarget * LANE_W[laneVehicle], 6.5, dt)
   live.laneVel = (live.laneX - prevX) / Math.max(dt, 1e-4)
 
+  live.target = p
   computeFrame(p, time, dt)
-
-  // a cutscene that ran ahead of the page scroll: bring the scrollbar along
-  if (cutscene && (live.stepIndex !== index || p >= 1) && window.scrollY / max < p - 0.0004) {
-    window.scrollTo({ top: p * max, behavior: 'instant' as ScrollBehavior })
-  }
 
   collectCoins(time)
   updateCrossings(time, dt)
@@ -354,12 +465,12 @@ function publish() {
     if (c.phase === 'yellow' || c.phase === 'red') signal = c.def.kind === 'cows' ? 'cows' : 'stop'
     else if (c.phase === 'go') signal = 'go'
   }
-  ui.set({
-    ...uiSnapshot(),
-    signal,
-    lane: game.laneTarget,
-    laneTip: settings.get().started && !game.laneChanged && live.kind === 'drive' && live.stepIndex <= 2,
-  })
+  let tip: TipState = 'none'
+  if (settings.get().started && live.kind === 'drive') {
+    if (!game.hasDriven) tip = 'drive'
+    else if (!game.laneChanged && live.stepIndex <= 2) tip = 'lane'
+  }
+  ui.set({ ...uiSnapshot(), signal, lane: game.laneTarget, tip })
 }
 
 if (import.meta.env.DEV) (window as unknown as { __game: typeof game }).__game = game

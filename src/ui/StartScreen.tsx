@@ -9,18 +9,14 @@ export function StartScreen({ ready }: { ready: boolean }) {
 
   useEffect(() => {
     if (started) return
-    const onScroll = () => {
-      if (ready && window.scrollY > 40) settings.set({ started: true })
-    }
     const onKey = (e: KeyboardEvent) => {
-      if (ready && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown')) settings.set({ started: true })
+      if (ready && (e.key === 'Enter' || e.key === ' ')) {
+        unlockAudio()
+        settings.set({ started: true })
+      }
     }
-    window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => window.removeEventListener('keydown', onKey)
   }, [ready, started])
 
   return (
@@ -53,7 +49,7 @@ export function StartScreen({ ready }: { ready: boolean }) {
           {ready ? 'Start the engine' : 'Building the world…'}
         </button>
         <p className="start__hint">
-          Scroll to drive · <kbd>←</kbd> <kbd>→</kbd> switch lanes for coins · <kbd>H</kbd> horn
+          Scroll down or <kbd>↑</kbd> to drive · scroll up or <kbd>↓</kbd> to reverse · <kbd>←</kbd> <kbd>→</kbd> switch lanes · <kbd>H</kbd> horn
           <br />
           Stop at red lights · swap vehicles at every zone gate
         </p>

@@ -1,7 +1,6 @@
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { installControls } from './lib/game'
-import { TOTAL_WEIGHT } from './lib/journey'
 import { settings, ui, useStore } from './lib/store'
 import { Scene } from './three/Scene'
 import { HUD } from './ui/HUD'
@@ -30,8 +29,6 @@ export default function App() {
   const onReady = useCallback(() => setSceneReady(true), [])
 
   useEffect(() => {
-    if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
-    window.scrollTo(0, 0)
     const coarse = window.matchMedia('(pointer: coarse)').matches
     if (coarse || (navigator.hardwareConcurrency ?? 8) <= 4) settings.set({ quality: 'low' })
     return installControls()
@@ -43,7 +40,6 @@ export default function App() {
 
   return (
     <>
-      <div className="scroll-space" style={{ height: `${Math.round(TOTAL_WEIGHT * 170)}vh` }} aria-hidden />
       <div className="stage">
         {fontsReady && (
           <Canvas

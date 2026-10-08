@@ -22,11 +22,23 @@
 html,
 body {
   margin: 0;
+  height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  /* the page never scrolls: wheel, keys and touch drive the vehicle instead */
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  touch-action: none;
+}
+
+.panel,
+.final {
+  touch-action: pan-y;
 }
 
 button {
@@ -50,11 +62,6 @@ kbd {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
-}
-
-.scroll-space {
-  width: 1px;
-  pointer-events: none;
 }
 
 .stage {
@@ -1175,6 +1182,30 @@ kbd {
 
 .ctrl--horn {
   margin-left: 6px;
+}
+
+.controls__gap {
+  width: 1px;
+  height: 26px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+.ctrl--pedal {
+  border-radius: 14px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ctrl--gas {
+  width: 52px;
+  background: color-mix(in srgb, var(--zone) 22%, transparent);
+  border-color: color-mix(in srgb, var(--zone) 55%, transparent);
+}
+
+.ctrl--pedal:active {
+  background: var(--zone);
+  color: #0b0d17;
 }
 
 .ctrl--horn.is-hint {

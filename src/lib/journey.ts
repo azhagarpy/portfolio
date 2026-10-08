@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { angleDiff, clamp, cruiseEase, cruiseSpeed, easeInOut, lerp, mulberry32, remap, smoothstep } from './math'
+import { angleDiff, clamp, easeInOut, lerp, mulberry32, remap, smoothstep } from './math'
 import type { StepKind } from './store'
 
 /* ------------------------------------------------------------------ */
@@ -248,7 +248,6 @@ export const STEPS: Step[] = []
     s.end /= acc
   }
 }
-export const TOTAL_WEIGHT = DRIVE_W.reduce((a, b) => a + b, 0) + SWAP_W * 7 + LAUNCH_W
 export const DRIVE_STEP = [0, 2, 4, 6, 8, 10, 12]
 export const ROCKET_SWAP_STEP = 13
 export const LAUNCH_STEP = 14
@@ -265,28 +264,19 @@ export function locate(p: number) {
   return { index: 0, t: 0 }
 }
 
-/** Road units travelled per unit of scroll progress at p (0 outside drive steps) */
+/** Road units travelled per unit of journey progress at p (0 outside drive steps) */
 export function unitsPerProgress(p: number) {
-  const { index, t } = locate(p)
-  const s = STEPS[index]
+  const s = STEPS[locate(p).index]
   if (s.kind !== 'drive') return 0
   const [u0, u1] = RANGES[s.vehicle]
-  return ((u1 - u0) * ROAD_LENGTH * Math.max(cruiseSpeed(t), 0.3)) / (0.84 * (s.end - s.start))
+  return ((u1 - u0) * ROAD_LENGTH) / (s.end - s.start)
 }
 
-/** Scroll progress at which vehicle v's drive reaches road position u */
+/** Journey progress at which vehicle v's drive reaches road position u */
 function progressForU(v: number, u: number) {
   const [u0, u1] = RANGES[v]
-  const target = (u - u0) / (u1 - u0)
-  let lo = 0
-  let hi = 1
-  for (let i = 0; i < 40; i++) {
-    const mid = (lo + hi) / 2
-    if (cruiseEase(mid) < target) lo = mid
-    else hi = mid
-  }
   const s = STEPS[DRIVE_STEP[v]]
-  return s.start + lo * (s.end - s.start)
+  return s.start + clamp((u - u0) / (u1 - u0)) * (s.end - s.start)
 }
 
 /* ------------------------------------------------------------------ */
@@ -392,6 +382,9 @@ export const live = {
   bloom: 0.6,
   laneX: 0,
   laneVel: 0,
+  velocity: 0, // road units per second, negative when reversing
+  accel: 0,
+  hero: 1, // 1 = opening shot in front of the auto, 0 = chase cam
   snap: false,
   vehicles: Array.from(
     { length: 8 },
@@ -483,12 +476,10 @@ function updateVehicles(index: number, t: number, time: number) {
     const di = DRIVE_STEP[v]
     let frac = 0
     let moving = 0
-    let ts = -1
     if (index > di) frac = 1
     else if (index === di) {
-      frac = cruiseEase(t)
-      moving = cruiseSpeed(t)
-      ts = t
+      frac = t
+      moving = clamp(Math.abs(live.velocity) / MAX_SPEED[v])
     }
     const [u0, u1] = RANGES[v]
     const u = lerp(u0, u1, frac)
@@ -501,8 +492,8 @@ function updateVehicles(index: number, t: number, time: number) {
     else if (step.kind === 'swap' && step.vehicle + 1 === v) power = smoothstep(0.9, 0.95, t)
     s.power = power
 
-    // lane offset: only while driving, always centred at the stations
-    const env = index === di ? smoothstep(0, 0.07, frac) * (1 - smoothstep(0.88, 0.985, frac)) : 0
+    // lane offset: free while driving, eased back to the centre when parking at the next gate
+    const env = index === di ? smoothstep(1.5, 9, (u1 - u) * ROAD_LENGTH) : 0
     s.lateral = live.laneX * env
     roadPoint(u, s.pos)
     roadRight(u, _rr)
@@ -522,9 +513,7 @@ function updateVehicles(index: number, t: number, time: number) {
     s.pitch = 0
 
     // suspension: squat when accelerating, dive when braking, settle, hop on engine start
-    if (v !== 3 && v !== 4 && ts >= 0) {
-      s.pitch += -0.035 * (ts < 0.16 ? 1 - ts / 0.16 : 0) + 0.045 * (ts > 0.84 ? Math.sin((Math.PI * (ts - 0.84)) / 0.16) : 0)
-    }
+    if (v !== 3 && v !== 4 && index === di) s.pitch += clamp(-live.accel * 0.0035, -0.045, 0.055)
     if (step.kind === 'swap' && step.vehicle === v && t < 0.1) {
       const k = t / 0.1
       s.pitch += 0.05 * Math.sin(k * Math.PI * 2) * (1 - k)
@@ -760,14 +749,18 @@ function updateCamera(step: Step, index: number, t: number) {
   cam.shake = 0
   if (step.kind === 'drive') {
     chaseCam(step.vehicle, cam.pos, cam.target)
-    if (index === 0) {
-      // cinematic hero framing that eases into the chase cam
+    if (index === 0 && live.hero > 0.001) {
+      // opening shot in front of the auto: orbit round to the chase cam once you drive off
       const s = live.vehicles[0]
-      const w = 1 - smoothstep(0, 0.3, t)
-      rotY(-4.4, 2.0, 6.6, s.yaw, _cp).add(s.pos)
+      const w = easeInOut(live.hero)
+      const [cx, cy, cz] = SPECS[0].cam
+      const angle = lerp(Math.atan2(cx, cz), Math.atan2(-4.4, 6.6), w)
+      const radius = lerp(Math.hypot(cx, cz), Math.hypot(4.4, 6.6), w)
+      _cp.set(Math.sin(angle) * radius, lerp(cy, 2.0, w), Math.cos(angle) * radius)
+      rotY(_cp.x, _cp.y, _cp.z, roadYaw(s.u), _cp).add(s.pos)
       _ct.copy(s.pos)
       _ct.y += 1.35
-      cam.pos.lerp(_cp, w)
+      cam.pos.lerp(_cp, Math.min(1, w * 4))
       cam.target.lerp(_ct, w)
     }
     return
